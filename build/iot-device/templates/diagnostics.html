@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Diagnostik &middot; IIoT Smart Controller{% endblock %}
+
+{% block content %}
+<section class="page-head">
+  <div>
+    <h1>Diagnostik Jaringan</h1>
+    <p class="muted">Ping host untuk memeriksa konektivitas perangkat.</p>
+  </div>
+</section>
+
+<section class="card">
+  <form method="post" action="{{ url_for('routes.diagnostics') }}" class="inline-form">
+    <label for="host">Host / IP</label>
+    <input id="host" name="host" type="text" value="{{ host }}" placeholder="127.0.0.1" required>
+    <button type="submit" class="btn primary">Jalankan Ping</button>
+  </form>
+</section>
+
+{% if output is not none %}
+<section class="card">
+  <h2>Output</h2>
+  <pre class="output">{{ output }}</pre>
+</section>
+{% endif %}
+{% endblock %}

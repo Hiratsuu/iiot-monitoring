@@ -1,0 +1,21 @@
+[Unit]
+Description=IIoT Smart Controller 01 (baseline vulnerable lab device)
+Documentation=file:/opt/iot-device/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=iotdev
+Group=iotdev
+WorkingDirectory=/opt/iot-device
+EnvironmentFile=-/etc/iot-device/iot-device.env
+ExecStart=/opt/iot-device/.venv/bin/python /opt/iot-device/app.py
+Restart=always
+RestartSec=3
+
+# Baseline deliberately has no hardening (V6).  The Prevention phase adds
+# NoNewPrivileges, ProtectSystem, PrivateTmp, MemoryMax and a capability set.
+
+[Install]
+WantedBy=multi-user.target

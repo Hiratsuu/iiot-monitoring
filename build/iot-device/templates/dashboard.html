@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Dashboard &middot; IIoT Smart Controller{% endblock %}
+
+{% block content %}
+<section class="page-head">
+  <div>
+    <h1>Dashboard</h1>
+    <p class="muted">Kontrol perangkat dan pantau suhu ruang server.</p>
+  </div>
+  <div class="uptime">Uptime: <strong id="uptime">{{ uptime_s }}</strong> s</div>
+</section>
+
+<section class="grid">
+  <article class="card sensor-card">
+    <h2>Sensor Suhu</h2>
+    <p class="sensor-value"><span id="sensor-temp">{{ '%.1f'|format(sensor.value) if sensor else '--' }}</span><span class="unit">&deg;C</span></p>
+    <p class="muted">Diperbarui: <span id="sensor-updated">{{ sensor.updated_at if sensor else '-' }}</span></p>
+    <p class="muted small">Ruang Server &middot; simulasi 24&ndash;32 &deg;C</p>
+  </article>
+
+  {% for d in devices %}
+  <article class="card device" data-device="{{ d.name }}" data-type="{{ d.type }}">
+    <h2>{{ d.name }}</h2>
+    <p class="muted">{{ d.location }}</p>
+    <p>Status: <strong class="state state-{{ d.state }}">{{ d.state }}</strong>
+      {% if d.type == 'led' %}&middot; <span class="value">{{ d.value|int }}</span>%{% endif %}
+    </p>
+    <div class="actions">
+      {% if d.type == 'led' %}
+      <button class="btn" data-action="on">ON</button>
+      <button class="btn" data-action="off">OFF</button>
+      <label class="range-label">Brightness
+        <input type="range" class="brightness" min="0" max="100" step="5" value="{{ d.value|int }}">
+      </label>
+      {% else %}
+      <button class="btn" data-action="on">ON</button>
+      <button class="btn" data-action="off">OFF</button>
+      {% endif %}
+    </div>
+  </article>
+  {% endfor %}
+</section>
+
+<section class="card">
+  <div class="card-head">
+    <h2>10 Event Terakhir</h2>
+    <a class="link" href="{{ url_for('routes.events') }}">Lihat semua</a>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Waktu</th><th>User</th><th>Device</th><th>Aksi</th><th>IP</th><th>Detail</th></tr>
+      </thead>
+      <tbody>
+        {% for e in events %}
+        <tr>
+          <td class="nowrap">{{ e.ts }}</td>
+          <td>{{ e.username or '-' }}</td>
+          <td>{{ e.device or '-' }}</td>
+          <td>{{ e.action }}</td>
+          <td>{{ e.source_ip or '-' }}</td>
+          <td class="detail">{{ e.detail or '' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="muted">Belum ada event.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

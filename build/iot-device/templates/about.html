@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Tentang &middot; IIoT Smart Controller{% endblock %}
+
+{% block content %}
+<section class="page-head">
+  <div>
+    <h1>Tentang Perangkat</h1>
+    <p class="muted">Identitas dan versi runtime.</p>
+  </div>
+</section>
+
+<section class="card">
+  <dl class="about">
+    <dt>Nama perangkat</dt><dd>{{ info.device }}</dd>
+    <dt>Hostname</dt><dd>{{ info.hostname }}</dd>
+    <dt>Alamat IP</dt><dd>{{ info.ip }}</dd>
+    <dt>Firmware</dt><dd>{{ info.firmware }}</dd>
+    <dt>Python</dt><dd>{{ info.python }}</dd>
+    <dt>Flask</dt><dd>{{ info.flask }}</dd>
+    <dt>Boot</dt><dd>{{ info.boot }}</dd>
+  </dl>
+</section>
+{% endblock %}

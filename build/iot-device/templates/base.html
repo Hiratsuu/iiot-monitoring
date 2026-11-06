@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}IIoT Smart Controller{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="dot"></span>
+      <span>IIoT Smart Controller 01</span>
+    </div>
+    {% if session.get('user') %}
+    <nav>
+      <a href="{{ url_for('routes.dashboard') }}">Dashboard</a>
+      <a href="{{ url_for('routes.diagnostics') }}">Diagnostik</a>
+      <a href="{{ url_for('routes.events') }}">Riwayat</a>
+      <a href="{{ url_for('routes.about') }}">Tentang</a>
+      <span class="user">{{ session.get('user') }} ({{ session.get('role') }})</span>
+      <a class="logout" href="{{ url_for('routes.logout') }}">Keluar</a>
+    </nav>
+    {% endif %}
+  </header>
+
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="footer">
+    <span>IIoT Smart Controller 01 &middot; firmware {{ config.FIRMWARE }}</span>
+    <span class="muted">LAB ONLY &mdash; intentionally vulnerable baseline</span>
+  </footer>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

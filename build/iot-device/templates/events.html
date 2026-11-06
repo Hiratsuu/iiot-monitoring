@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Riwayat &middot; IIoT Smart Controller{% endblock %}
+
+{% block content %}
+<section class="page-head">
+  <div>
+    <h1>Riwayat Event</h1>
+    <p class="muted">50 aktivitas terakhir pada perangkat.</p>
+  </div>
+</section>
+
+<section class="card">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Waktu</th><th>User</th><th>Device</th><th>Aksi</th><th>IP</th><th>Detail</th></tr>
+      </thead>
+      <tbody>
+        {% for e in events %}
+        <tr>
+          <td class="nowrap">{{ e.ts }}</td>
+          <td>{{ e.username or '-' }}</td>
+          <td>{{ e.device or '-' }}</td>
+          <td>{{ e.action }}</td>
+          <td>{{ e.source_ip or '-' }}</td>
+          <td class="detail">{{ e.detail or '' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="muted">Belum ada event.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

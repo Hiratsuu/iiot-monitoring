@@ -1,0 +1,142 @@
+## identity
+2026-11-06T03:00:31+00:00
+kali-raspberrypi
+Linux kali-raspberrypi 6.12.34+rpt-rpi-v8 #1 SMP PREEMPT Kali 1:6.12.34-1+rpt1+0kali2 (2025-07-21) aarch64 GNU/Linux
+PRETTY_NAME="Kali GNU/Linux Rolling"
+VERSION_ID="2026.2"
+## uptime
+ 03:00:32 up 4 days, 39 min,  1 user,  load average: 1.00, 0.46, 0.37
+## memory
+               total        used        free      shared  buff/cache   available
+Mem:           906Mi       231Mi       124Mi       4.4Mi       569Mi       675Mi
+Swap:             0B          0B          0B
+## disk
+Filesystem     Type   Size  Used Avail Use% Mounted on
+/dev/sda2      ext4    28G   17G  9.5G  64% /
+tmpfs          tmpfs  454M  4.0K  454M   1% /tmp
+/dev/sda2      ext4    28G   17G  9.5G  64% /
+NAME    SIZE TYPE MOUNTPOINT
+sda    28.7G disk 
+├─sda1  512M part /boot/firmware
+└─sda2 28.2G part /
+## power
+temp=60.1'C
+throttled=0x50005
+arm_freq=1200
+arm_freq_min=600
+core_freq=400
+desired_osc_freq=0x387520
+gpu_freq=300
+over_voltage_avs=0x249f0
+sdram_freq=450
+hdmi_pixel_freq_limit:0=0x9a7ec80
+## undervoltage_events
+1365
+## failed_units
+  UNIT LOAD ACTIVE SUB DESCRIPTION
+
+0 loaded units listed.
+## listening
+State  Recv-Q Send-Q Local Address:Port Peer Address:PortProcess
+LISTEN 0      128          0.0.0.0:22        0.0.0.0:*    users:(("sshd",pid=815,fd=6))
+LISTEN 0      128             [::]:22           [::]:*    users:(("sshd",pid=815,fd=7))
+## network
+lo               UNKNOWN        127.0.0.1/8 
+eth0             UP             192.168.100.90/24 
+default via 192.168.100.1 dev eth0 proto dhcp src 192.168.100.90 metric 1002 
+192.168.100.0/24 dev eth0 proto dhcp scope link src 192.168.100.90 metric 1002 
+192.168.100.69 dev eth0 lladdr 38:be:ab:b8:e2:48 STALE 
+192.168.100.68 dev eth0 lladdr f0:20:ff:0d:e6:16 STALE 
+192.168.100.70 dev eth0 lladdr 38:1f:8d:2b:16:ba STALE 
+192.168.100.55 dev eth0 lladdr b8:27:eb:a1:47:e7 STALE 
+192.168.100.45 dev eth0 lladdr a0:36:bc:6a:2c:e1 STALE 
+192.168.100.88 dev eth0 lladdr b8:27:eb:5a:85:cf STALE 
+192.168.100.81 dev eth0 lladdr 78:8a:20:2c:a9:5e STALE 
+192.168.100.77 dev eth0 lladdr bc:df:58:03:6d:80 STALE 
+192.168.100.80 dev eth0 lladdr 54:d6:0d:f9:40:7e STALE 
+192.168.100.76 dev eth0 lladdr 44:29:1e:dc:3d:1c STALE 
+192.168.100.82 dev eth0 lladdr c0:f8:53:99:75:e4 STALE 
+192.168.100.73 dev eth0 lladdr b8:27:eb:54:3a:3a STALE 
+192.168.100.1 dev eth0 lladdr cc:2d:e0:8d:d4:8e REACHABLE 
+192.168.100.72 dev eth0 lladdr 74:83:c2:83:b5:08 STALE 
+## systemd
+systemd 260 (260.1-1)
+autovt@.service
+basic.target.wants
+bluetooth.target.wants
+cloud-config.target.wants
+cloud-init.target.wants
+copy-user-wpasupplicant.service
+dbus-org.bluez.service
+dbus-org.freedesktop.ModemManager1.service
+dbus-org.freedesktop.nm-dispatcher.service
+dbus-org.freedesktop.timesync1.service
+display-manager.service
+enable-ssh.service
+getty.target.wants
+graphical.target.wants
+iodined.service
+multi-user.target.wants
+network-online.target.wants
+network-pre.target.wants
+paths.target.wants
+remote-fs.target.wants
+rpi-imager-fixup.service
+rpi-resizerootfs.service
+runonce.service
+smartd.service
+smartmontools.service
+smi-hack.service
+sockets.target.wants
+sshd.service
+sysinit.target.wants
+syslog.service
+sysstat.service.wants
+timers.target.wants
+## python
+Python 3.14.7
+flask 3.1.3
+sqlite 3.46.1
+venv OK
+## tools
+hydra      /usr/bin/hydra
+nmap       /usr/bin/nmap
+tcpdump    /usr/bin/tcpdump
+curl       /usr/bin/curl
+sqlite3    /usr/bin/sqlite3
+nikto      /usr/bin/nikto
+jq         MISSING
+git        /usr/bin/git
+## port_8080
+free
+## user_iotdev
+id: ‘iotdev’: no such user
+## opt
+drwxr-xr-x 3 root root 4096 Jun 23 13:03 /opt
+/opt writable via sudo
+## sudo
+
+User kali may run the following commands on kali-raspberrypi:
+    (ALL : ALL) ALL
+    (ALL : ALL) ALL
+    (ALL) NOPASSWD: ALL
+## firewall
+ufw        MISSING
+nft        /usr/sbin/nft
+iptables   /usr/sbin/iptables
+## packages
+2900
+python3-venv:
+  Installed: 3.14.7-3
+  Candidate: 3.14.7-3
+  Version table:
+## crontab
+no crontab for kali
+## time
+               Local time: Fri 2026-11-06 03:00:40 UTC
+           Universal time: Fri 2026-11-06 03:00:40 UTC
+                 RTC time: n/a
+                Time zone: Etc/UTC (UTC, +0000)
+System clock synchronized: yes
+              NTP service: active
+          RTC in local TZ: no

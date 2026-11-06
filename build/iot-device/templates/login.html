@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Masuk &middot; IIoT Smart Controller</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="login-page">
+  <main class="login-card">
+    <div class="login-brand">
+      <span class="dot"></span>
+      <h1>IIoT Smart Controller 01</h1>
+      <p class="muted">Kendali ruang server</p>
+    </div>
+
+    {% if error %}
+    <div class="alert" role="alert">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" action="{{ url_for('routes.login') }}">
+      <label for="username">Username</label>
+      <input id="username" name="username" type="text" value="{{ username }}" autocomplete="username" required autofocus>
+
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+
+      <button type="submit" class="btn primary">Masuk</button>
+    </form>
+
+    <p class="muted small">Firmware {{ config.FIRMWARE }} &middot; LAB ONLY</p>
+  </main>
+</body>
+</html>

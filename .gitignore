@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Local runtime data
+build/iot-device/data/
+*.db
+*.sqlite3
+*.sqlite
+
+# Attack artefacts
+logs/**/attack/
+logs/**/recon/
+logs/**/evidence/
+*.pcap
+cookies-*.txt
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
