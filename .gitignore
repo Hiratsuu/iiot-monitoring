@@ -8,6 +8,8 @@ venv/
 # Local runtime data
 build/iot-device/data/
 *.db
+*.db-wal
+*.db-shm
 *.sqlite3
 *.sqlite
 

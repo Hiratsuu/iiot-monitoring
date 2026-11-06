@@ -1,6 +1,7 @@
 """SQLite access, schema and audit helpers."""
 
 import sqlite3
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -39,6 +40,8 @@ CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts);
 """
 
 
@@ -46,12 +49,38 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _enable_wal(conn: sqlite3.Connection) -> None:
+    """Switch the database to WAL, tolerating a concurrent first-time switch.
+
+    Converting a fresh database needs an exclusive lock and does not always
+    invoke SQLite's busy handler, so retry briefly instead of failing the
+    request.  Once the database is in WAL the pragma is a cheap no-op.
+    """
+    mode = None
+    for attempt in range(5):
+        try:
+            mode = conn.execute("PRAGMA journal_mode=WAL").fetchone()[0]
+            break
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc) or attempt == 4:
+                raise
+            time.sleep(0.05 * (attempt + 1))
+    if mode != "wal":
+        current_app.logger.warning(
+            "journal_mode is %r; WAL unavailable on this filesystem?", mode
+        )
+
+
 def get_db() -> sqlite3.Connection:
     if "db" not in g:
         db_path = current_app.config["DB_PATH"]
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(db_path, timeout=10)
         conn.row_factory = sqlite3.Row
+        # Busy handler first: timers/sensors write concurrently with requests.
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        _enable_wal(conn)
         g.db = conn
     return g.db
 
