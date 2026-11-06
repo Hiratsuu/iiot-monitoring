@@ -29,7 +29,7 @@ aktuator, diagnostik ping, riwayat event, halaman identitas, dan `/health`.
 ```
 build/iot-device/          # aplikasi Flask
   app.py                   # entrypoint
-  seed.py                  # schema + user + device (idempotent)
+  seed.py                  # schema + user + device (one-shot, --force re-adds)
   iot_device/              # config, db, auth, devices, routes, seed_data
   templates/  static/      # UI
 deploy/

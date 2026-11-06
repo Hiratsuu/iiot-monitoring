@@ -135,6 +135,34 @@ def refresh_sensor() -> dict | None:
     return device
 
 
+def reconcile_on_startup() -> None:
+    """Reset actuators that cannot legitimately stay on across a restart.
+
+    The buzzer is driven by an in-memory timer, so a crash or restart while it
+    was on would leave it buzzing forever.  Drive the GPIO pin low even when
+    the database already says "off" (the two can diverge if the process died
+    between commit and the GPIO write), then record the reset when the
+    database still says "on".  See audit C-17.
+    """
+    # The baseline has a single buzzer; control_device treats any buzzer* name
+    # as a buzzer, but only this one is part of the seeded schema.
+    _apply_gpio("buzzer-1", "off")
+
+    device = get_device("buzzer-1")
+    if device is None or device["state"] != "on":
+        return
+
+    _store("buzzer-1", "off", 0, commit=False)
+    record_event(
+        "control",
+        device="buzzer-1",
+        detail="startup-reset",
+        commit=False,
+    )
+    get_db().commit()
+    log.info("buzzer buzzer-1 reset to off on startup")
+
+
 def _cancel_buzzer_timer(name: str) -> None:
     with _timer_lock:
         timer = _timers.pop(name, None)

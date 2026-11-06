@@ -101,21 +101,29 @@ log "setting ownership"
 chown -R root:"$APP_USER" "$APP_DIR"
 chown -R "$APP_USER":"$APP_USER" "$DATA_DIR"
 
-log "seeding database (idempotent)"
+log "seeding database (one-shot)"
+# Only a brand-new database may be force-seeded; an existing one keeps its
+# runtime changes (e.g. a mitigated admin password) thanks to the seeded marker.
+SEED_ARGS=()
+if [[ ! -f "${DATA_DIR}/iot.db" ]]; then
+  SEED_ARGS+=(--force)
+fi
 if command -v runuser >/dev/null; then
   runuser -u "$APP_USER" -- env \
     DB_PATH="${DATA_DIR}/iot.db" \
     BIND_ADDR="$BIND_ADDR" \
     PORT="$PORT" \
     FIRMWARE="$FIRMWARE" \
-    "$APP_DIR/.venv/bin/python" "$APP_DIR/seed.py"
+    "$APP_DIR/.venv/bin/python" "$APP_DIR/seed.py" \
+    "${SEED_ARGS[@]+"${SEED_ARGS[@]}"}"
 else
   sudo -u "$APP_USER" env \
     DB_PATH="${DATA_DIR}/iot.db" \
     BIND_ADDR="$BIND_ADDR" \
     PORT="$PORT" \
     FIRMWARE="$FIRMWARE" \
-    "$APP_DIR/.venv/bin/python" "$APP_DIR/seed.py"
+    "$APP_DIR/.venv/bin/python" "$APP_DIR/seed.py" \
+    "${SEED_ARGS[@]+"${SEED_ARGS[@]}"}"
 fi
 if [[ -f "${DATA_DIR}/iot.db" ]]; then
   chown "$APP_USER":"$APP_USER" "${DATA_DIR}/iot.db"

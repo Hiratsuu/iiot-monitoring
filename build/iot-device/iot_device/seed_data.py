@@ -1,17 +1,33 @@
 """Seed data for the IIoT Smart Controller baseline.
 
 Kept inside the package so the application factory never depends on a
-top-level script import.  Idempotent: safe to run multiple times.
+top-level script import.  Seeding is one-shot: a ``seeded`` marker in the
+settings table stops later calls from touching an existing database, so
+mitigations applied at runtime (for example a changed admin password) survive
+service restarts.  See audit C-02.
 """
 
 import time
 
-from .db import get_db, init_schema, utc_now
+from .db import get_db, get_setting, init_schema, set_setting, utc_now
+
+SEED_MARKER = "seeded"
 
 
-def seed(app) -> None:
+def seed(app, *, force: bool = False) -> bool:
+    """Insert baseline rows once and return True when they were written.
+
+    A database that already carries the ``seeded`` marker is left untouched.
+    ``force=True`` re-runs the inserts, but they use ``INSERT OR IGNORE`` so
+    existing rows (and runtime changes such as a mitigated password) are kept;
+    only missing baseline rows are added.  It is reserved for the installer
+    against a brand-new database.
+    """
     with app.app_context():
         init_schema()
+        if not force and get_setting(SEED_MARKER) == "1":
+            return False
+
         db = get_db()
         now = utc_now()
 
@@ -52,3 +68,5 @@ def seed(app) -> None:
             )
 
         db.commit()
+        set_setting(SEED_MARKER, "1")
+        return True

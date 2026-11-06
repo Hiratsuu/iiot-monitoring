@@ -12,6 +12,7 @@ from flask import Flask, jsonify, request
 
 from .config import Config
 from .db import close_db, get_db, init_schema, set_setting
+from .devices import reconcile_on_startup
 from .routes import bp
 from .seed_data import seed as seed_data
 
@@ -21,7 +22,7 @@ logging.basicConfig(
 )
 
 
-def create_app(config_object=Config) -> Flask:
+def create_app(config_object=Config, *, seed_on_start: bool = True) -> Flask:
     base = Path(__file__).resolve().parent.parent
     app = Flask(
         __name__,
@@ -40,8 +41,14 @@ def create_app(config_object=Config) -> Flask:
 
     with app.app_context():
         init_schema()
-        # Ensure baseline rows exist even if only part of the DB was created.
-        seed_data(app)
+        if seed_on_start:
+            # Seeding is one-shot: the marker in settings keeps runtime
+            # changes (e.g. a mitigated admin password) intact across
+            # restarts (C-02).  It only fills rows that are missing.
+            seed_data(app)
+            # Buzzer state is timer-driven and cannot survive a restart
+            # (C-17).  The CLI seeder skips this: no service start happened.
+            reconcile_on_startup()
         # uptime_s reflects service start, not the original install date.
         set_setting("boot_ts", str(int(time.time())))
 
