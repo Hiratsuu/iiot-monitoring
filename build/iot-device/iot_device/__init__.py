@@ -5,13 +5,15 @@ an isolated lab network (192.168.100.90:8080).  See rencana-aplikasi-iot.md.
 """
 
 import logging
+import time
 from pathlib import Path
 
 from flask import Flask, jsonify, request
 
 from .config import Config
-from .db import close_db, init_schema, get_db
+from .db import close_db, get_db, init_schema, set_setting
 from .routes import bp
+from .seed_data import seed as seed_data
 
 logging.basicConfig(
     level=logging.INFO,
@@ -38,17 +40,22 @@ def create_app(config_object=Config) -> Flask:
 
     with app.app_context():
         init_schema()
-        row = get_db().execute("SELECT COUNT(*) AS n FROM users").fetchone()
-        if row["n"] == 0:
-            from seed import seed
-
-            seed(app)
+        # Ensure baseline rows exist even if only part of the DB was created.
+        seed_data(app)
+        # uptime_s reflects service start, not the original install date.
+        set_setting("boot_ts", str(int(time.time())))
 
     @app.errorhandler(404)
     def not_found(exc):
         if request.path.startswith("/api/"):
             return jsonify({"ok": False, "error": "not found"}), 404
         return "Not Found", 404
+
+    @app.errorhandler(405)
+    def method_not_allowed(exc):
+        if request.path.startswith("/api/"):
+            return jsonify({"ok": False, "error": "method not allowed"}), 405
+        return "Method Not Allowed", 405
 
     @app.errorhandler(500)
     def server_error(exc):  # pragma: no cover - defensive

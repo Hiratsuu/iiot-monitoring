@@ -13,9 +13,9 @@
 <section class="grid">
   <article class="card sensor-card">
     <h2>Sensor Suhu</h2>
-    <p class="sensor-value"><span id="sensor-temp">{{ '%.1f'|format(sensor.value) if sensor else '--' }}</span><span class="unit">&deg;C</span></p>
+    <p class="sensor-value"><span id="sensor-temp" aria-live="polite">{{ '%.1f'|format(sensor.value) if sensor else '--' }}</span><span class="unit">&deg;C</span></p>
     <p class="muted">Diperbarui: <span id="sensor-updated">{{ sensor.updated_at if sensor else '-' }}</span></p>
-    <p class="muted small">Ruang Server &middot; simulasi 24&ndash;32 &deg;C</p>
+    <p class="muted small">Ruang Server &middot; simulasi 26&ndash;28 &deg;C</p>
   </article>
 
   {% for d in devices %}

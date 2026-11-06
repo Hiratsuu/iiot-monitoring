@@ -331,13 +331,15 @@ Ini membuat forensik fase Mitigasi lebih menantang, tetapi `source_ip` dan
    `pip install -r requirements.txt` (Flask sudah tersedia sistem, jadi tanpa
    internet).
 5. Seed DB bila belum ada (idempotent).
-6. Install unit, `daemon-reload`, `enable --now`.
-7. Verifikasi `/health`.
-8. Aman dijalankan ulang.
+6. Install unit, `daemon-reload`, `enable` + `restart`.
+7. Verifikasi `/health` (JSON `status=ok`) dan status systemd.
+8. Aman dijalankan ulang; env file ditulis ulang setiap run.
 
 ### Uninstaller
-Stop + disable + hapus unit, `/opt/iot-device`, `/var/lib/iot-device`,
-`/etc/iot-device`, lalu hapus user `iotdev`. Minta konfirmasi sebelum hapus DB.
+Stop + disable + hapus unit/drop-in, `/opt/iot-device`, dan `/etc/iot-device`,
+lalu hapus user + group `iotdev`. **Default menyimpan
+`/var/lib/iot-device/iot.db`**; gunakan `--purge` untuk menghapusnya (dengan
+konfirmasi tambahan). Verifikasi service berhenti dan user hilang.
 
 ### Config baseline
 ```ini

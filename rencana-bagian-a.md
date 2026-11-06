@@ -122,7 +122,7 @@ Device virtual: `led-1` (on/off + brightness), `relay-1`, `buzzer-1`,
 | V1 | **Command injection** (`shell=True`, input tak disanitasi) | `/api/diagnostics?host=` | CWE-78 | **Serangan utama** |
 | V2 | Password default `admin/admin`, disimpan plaintext | `seed.py` | CWE-798/256 | Initial access, rantai serangan |
 | V3 | Tidak ada rate-limit / lockout | `/login` | CWE-307 | Memungkinkan brute force (hydra) |
-| V4 | Cookie session tanpa `HttpOnly`/`Secure`, `SECRET_KEY` hardcoded | `auth.py` | CWE-1004/798 | Mempermudah takeover session |
+| V4 | Cookie session tanpa `HttpOnly`/`Secure`, `SECRET_KEY` hardcoded | `config.py` | CWE-1004/798 | Mempermudah takeover session |
 | V5 | Tanpa CSRF token | form control | CWE-352 | Aksi device bisa dipicu dari luar |
 | V6 | Service tanpa hardening systemd | `.service` | CWE-250 | Kontras untuk fase Prevention |
 | V7 | Flask dev server dipakai sebagai server produksi | `app.py` | CWE-1104 | Realisme + Prevention |
@@ -137,7 +137,7 @@ debugger.
    - Catat snapshot: `ss -tlnp`, `dpkg -l`, `systemctl list-units`, `df -h`
      -> simpan di `config-snapshot/`.
    - Verifikasi port 8080 kosong, disk >=2G, `python3 -m venv` OK, `sqlite3` ada.
-   - Cek ulang `vcgencmd get_throttled` (harus `0x0`; saat ini `0x50000`).
+   - Cek ulang `vcgencmd get_throttled` (harus `0x0`; saat ini `0x50005`).
 
 2. **Bangun app** (+/-60-90 mnt)
    - Tulis Flask app + template + seed DB di `build/iot-device/`.
@@ -197,7 +197,7 @@ debugger.
 
 ## A.9 Hasil pre-flight
 
-**Selesai 2026-11-06 03:00 UTC.** Ringkasan: 20 item diperiksa, 15 PASS,
+**Selesai 2026-11-06 03:00 UTC.** Ringkasan: 20 item diperiksa, 16 PASS,
 3 WARN (SSH sempat putus, `jq` tidak ada, `ufw` tidak ada), 1 FAIL (daya:
 `get_throttled=0x50005`, 1365 event undervoltage). Tidak ada blocker untuk
 build/deploy; PSU 5V/3A diperlukan sebelum demo serangan berat.

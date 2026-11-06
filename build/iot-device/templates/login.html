@@ -19,6 +19,7 @@
     {% endif %}
 
     <form method="post" action="{{ url_for('routes.login') }}">
+      {% if next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}
       <label for="username">Username</label>
       <input id="username" name="username" type="text" value="{{ username }}" autocomplete="username" required autofocus>
 

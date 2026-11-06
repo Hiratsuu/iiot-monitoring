@@ -7,8 +7,13 @@ snapshot kondisi awal.
 | Direktori | Isi |
 |-----------|-----|
 | `preflight/` | `kali-raw.txt` + `summary.md` (20 item pemeriksaan) |
-| `recon/` | output nmap, banner/header |
-| `attack/` | hydra, cookie jar, request/response injeksi, dump DB, pcap |
+| `recon/` | output nmap, banner/header, health snapshot |
+| `attack/` | hydra, cookie jar, request/response injeksi, ekstraksi DB |
 | `evidence/` | tangkapan layar, log journald, salinan bukti final |
 
-Nama file skrip serangan memakai timestamp UTC agar tidak saling menimpa.
+`tcpdump`/pcap tidak dijalankan otomatis oleh `attack-iot.sh`; tambahkan
+manual bila laporan membutuhkan capture paket. Nama file memakai timestamp UTC
+agar tidak saling menimpa.
+
+Salinan asli `summary.md` dan `kali-raw.txt` juga tersimpan di root repo;
+versi di `preflight/` adalah salinan kanonik untuk laporan.

@@ -30,7 +30,7 @@ aktuator, diagnostik ping, riwayat event, halaman identitas, dan `/health`.
 build/iot-device/          # aplikasi Flask
   app.py                   # entrypoint
   seed.py                  # schema + user + device (idempotent)
-  iot_device/              # config, db, auth, devices, routes
+  iot_device/              # config, db, auth, devices, routes, seed_data
   templates/  static/      # UI
 deploy/
   iot-device.service       # unit systemd baseline (tanpa hardening, V6)
@@ -41,7 +41,7 @@ scripts/
   attack-iot.sh            # reproduksi rantai serangan
 logs/phase-iot-2026-11-06/ # preflight, recon, attack, evidence
 reports/                   # dokumentasi hasil
-plans / rencana-*.md       # dokumen rencana (root repo)
+rencana-*.md               # dokumen rencana (root repo)
 ```
 
 ## Menjalankan lokal (laptop, tanpa Pi)
@@ -75,13 +75,13 @@ Linux.
 | `/logout` | GET | ya | hapus session |
 | `/` | GET | ya | dashboard |
 | `/diagnostics` | GET/POST | ya | form ping |
-| `/events` | GET | ya | riwayat 50 event |
-| `/about` | GET | ya | identitas perangkat (V8) |
+| `/events` | GET | admin | riwayat 50 event |
+| `/about` | GET | admin | identitas perangkat (V8) |
 | `/api/status` | GET | ya | state semua device |
 | `/api/control` | POST | ya | ubah state device (V5) |
 | `/api/diagnostics` | GET | ya | output ping (**V1**) |
-| `/api/events` | GET | ya | JSON riwayat |
-| `/api/about` | GET | ya | JSON identitas (V8) |
+| `/api/events` | GET | admin | JSON riwayat |
+| `/api/about` | GET | admin | JSON identitas (V8) |
 
 ## Celah yang ditanam
 
@@ -104,14 +104,23 @@ Prasyarat: SSH ke `192.168.100.90` (user dengan sudo), port 8080 kosong,
 Python + Flask tersedia. PSU 5V/3A sangat disarankan (Pi sedang undervoltage).
 
 ```bash
-scp -r build deploy scripts README.md kali@192.168.100.90:~/iiot-monitoring/
-ssh kali@192.168.100.90 'cd ~/iiot-monitoring && sudo ./deploy/install-iot-device.sh'
+# rsync is preferred: it keeps LF/modes and skips local Python artefacts
+rsync -av --exclude '.venv' --exclude 'data' \
+  build deploy scripts README.md kali@192.168.100.90:~/iiot-monitoring/
+ssh kali@192.168.100.90 \
+  'cd ~/iiot-monitoring && chmod +x deploy/*.sh scripts/*.sh && sudo bash deploy/install-iot-device.sh'
 ```
 
-Installer: membuat user `iotdev`, direktori, venv, env file, seed DB, unit
-systemd, lalu `enable --now` dan verifikasi `/health`. Aman dijalankan ulang.
+Tanpa `rsync`, gunakan `scp -p -r` lalu `chmod +x` di Pi. Jangan mengirim
+`build/iot-device/.venv` (artefak Windows, ~27 MB) atau folder `data/`.
 
-Override opsional: `BIND_ADDR=... PORT=... GPIO_ENABLED=1 sudo -E ./deploy/install-iot-device.sh`.
+Installer: membuat group + user `iotdev` secara eksplisit, direktori, venv,
+menulis ulang env file, seed DB, unit systemd, lalu `enable` + `restart`.
+Health check memvalidasi JSON `/health` dan status systemd. Aman dijalankan
+ulang; override env diterapkan pada setiap run.
+
+Override opsional:
+`BIND_ADDR=... PORT=... GPIO_ENABLED=1 sudo -E bash deploy/install-iot-device.sh`.
 
 ## Uji
 
@@ -123,16 +132,21 @@ Override opsional: `BIND_ADDR=... PORT=... GPIO_ENABLED=1 sudo -E ./deploy/insta
 ./scripts/attack-iot.sh
 ```
 
-Smoke test membuktikan T1–T11 termasuk injeksi `?host=127.0.0.1;id`.
-Skrip serangan menjalankan nmap, hydra (kredensial default), lalu bukti
-injeksi dan dump DB. Hasil tersimpan di `logs/phase-iot-2026-11-06/attack/`.
+Smoke test mencakup **T1–T13** (T7 persistence lintas restart aktif dengan
+`WITH_RESTART=1`, T12/T13 butuh systemd/journal di host target), termasuk
+injeksi `?host=127.0.0.1;id`. Skrip serangan menjalankan nmap, hydra
+(kredensial default), lalu bukti injeksi dan ekstraksi DB. Hasil recon
+tersimpan di `logs/phase-iot-2026-11-06/recon/`, bukti serangan di
+`logs/phase-iot-2026-11-06/attack/` (permission `0600`/`0700`).
 
 ## Rollback
 
 ```bash
-sudo ./deploy/uninstall-iot-device.sh            # simpan database
-sudo ./deploy/uninstall-iot-device.sh --purge    # hapus database juga
+sudo bash deploy/uninstall-iot-device.sh            # simpan database
+sudo bash deploy/uninstall-iot-device.sh --purge    # hapus database juga
 ```
+
+Uninstaller memverifikasi service berhenti dan user/group benar-benar hilang.
 
 ## Batas aman
 
@@ -147,5 +161,6 @@ sudo ./deploy/uninstall-iot-device.sh --purge    # hapus database juga
 - [x] Celah V1–V8 terpasang
 - [x] Installer/uninstaller + unit systemd
 - [x] Skrip smoke & serangan
+- [x] Perbaikan P0/P1 hasil code review
 - [ ] Deploy ke Pi (butuh akses SSH dari mesin ini)
 - [ ] Bukti serangan tersimpan di `logs/`

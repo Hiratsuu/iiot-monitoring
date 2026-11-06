@@ -75,6 +75,7 @@ def record_event(
     device: str | None = None,
     source_ip: str | None = None,
     detail: str | None = None,
+    commit: bool = True,
 ) -> None:
     db = get_db()
     db.execute(
@@ -82,7 +83,19 @@ def record_event(
         " VALUES (?, ?, ?, ?, ?, ?)",
         (utc_now(), username, device, action, source_ip, detail),
     )
+    if commit:
+        db.commit()
+
+
+def set_setting(key: str, value: str) -> None:
+    db = get_db()
+    db.execute(
+        "INSERT INTO settings (key, value) VALUES (?, ?)"
+        " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, str(value)),
+    )
     db.commit()
+
 
 
 def get_setting(key: str, default: str | None = None) -> str | None:

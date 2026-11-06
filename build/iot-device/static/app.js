@@ -43,14 +43,22 @@
     if (el) el.textContent = text;
   }
 
+  let pollToken = 0;
+
   async function poll() {
+    const token = ++pollToken;
     try {
       const res = await fetch("/api/status", { headers: { Accept: "application/json" } });
       if (!res.ok) return;
       const data = await res.json();
+      if (token !== pollToken) return; // a newer poll already rendered
 
       if (data.sensor) {
-        setText(document.getElementById("sensor-temp"), Number(data.sensor.temp_c).toFixed(1));
+        const temp = Number(data.sensor.temp_c);
+        setText(
+          document.getElementById("sensor-temp"),
+          Number.isFinite(temp) ? temp.toFixed(1) : "--"
+        );
         setText(document.getElementById("sensor-updated"), data.sensor.updated_at || "-");
       }
       setText(document.getElementById("uptime"), data.uptime_s);

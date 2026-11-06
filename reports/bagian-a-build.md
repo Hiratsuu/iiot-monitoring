@@ -29,32 +29,17 @@ Tidak ada SQLi/XSS/upload/path traversal yang ditanam.
 
 ### 2.1 Uji fungsional (Flask test client)
 
-| # | Uji | Hasil |
-|---|-----|-------|
-| 1 | `/health` 200 JSON | PASS |
-| 2 | `/api/status` tanpa auth → 401 JSON | PASS |
-| 3 | Halaman tanpa auth → redirect `/login` | PASS |
-| 4 | Login salah → 401 | PASS |
-| 5 | Login `admin/admin` → 302 + cookie | PASS |
-| 6 | Cookie tanpa `HttpOnly`/`Secure` (V4) | PASS |
-| 7 | `/api/status` 3 device + sensor | PASS |
-| 8 | Kontrol LED on / brightness 55 | PASS |
-| 9 | Buzzer on | PASS |
-| 10 | Device tidak dikenal → 404 | PASS |
-| 11 | Aksi tidak dikenal → 400 | PASS |
-| 12 | Sensor read-only → 400 | PASS |
-| 13 | Event audit tercatat | PASS |
-| 14 | `/api/about` bocorkan versi (V8) | PASS |
-| 15 | `/api/diagnostics` output text/plain | PASS |
-| 16 | **V1 injection mengeksekusi perintah** (`& whoami`) | PASS — output `hirats\kimic` |
-| 17 | POST tanpa CSRF token diterima (V5) | PASS |
-| 18 | Logout menghapus session | PASS |
-| 19 | Render dashboard + 4 device | PASS |
-| 20 | Render diagnostics + POST ping | PASS |
-| 21 | Render events | PASS |
-| 22 | Render about | PASS |
+| Kelompok | Uji | Hasil |
+|----------|-----|-------|
+| Auth | `/health` 200 JSON; API tanpa auth → 401; halaman → redirect; login salah → 401; login `admin/admin` → 302; cookie tanpa `HttpOnly`/`Secure` (V4); logout | PASS |
+| Otorisasi | Admin akses `/events`, `/about`, `/api/events`, `/api/about`; operator hanya dashboard/kontrol/diagnostik (events & about → 403) | PASS |
+| Device | Status 3 aktuator + sensor; LED on/set 55; relay on; buzzer on → auto-off 5 detik; device/aksi tidak dikenal → 404/400; sensor read-only → 400 | PASS |
+| Validasi input | Body JSON list → 400; field `device` hilang → 400; `value` boolean → 400; method salah di API → 405 JSON | PASS |
+| Redirect | `?next=//evil.example` ditolak (redirect `/`); `?next=/diagnostics` dipertahankan | PASS |
+| V1 | `/api/diagnostics` text/plain; injeksi `& whoami` → eksekusi; output >4 KB dipotong dengan penanda | PASS |
+| Render | Dashboard, diagnostics, events, about | PASS |
 
-**Total: 22/22 PASS.**
+**Total: 40/40 PASS.**
 
 ### 2.2 Uji server live (`python app.py`, 127.0.0.1:8099)
 
@@ -69,8 +54,28 @@ Tidak ada SQLi/XSS/upload/path traversal yang ditanam.
 
 ### 2.3 Seed idempotent
 
-Dijalankan 3x pada DB yang sama: tetap `2 users`, `4 devices`, `3 settings`.
-Tidak ada duplikasi/error.
+Dijalankan berulang pada DB yang sama: tetap `2 users`, `4 devices`,
+`3 settings`. Tidak ada duplikasi/error. `boot_ts` diperbarui saat service
+start sehingga `uptime_s` mencerminkan proses berjalan.
+
+### 2.4 Perbaikan pasca code review
+
+| Temuan | Perbaikan | Status |
+|--------|-----------|--------|
+| Open redirect `?next=//host` | Validasi `urlsplit` + tolak `//`/backslash; hidden field `next` di form login | selesai |
+| Payload `/api/control` bisa 500 | Validasi tipe dict/string/numeric; 400 untuk input salah | selesai |
+| Capture diagnostics tak terbatas | Reader thread + batas 4 KB + kill process group saat timeout/oversize | selesai |
+| Race timer buzzer | Registry timer + generation; timer lama dibatalkan; event `auto-off` dicatat | selesai |
+| `datetime.utcnow()` deprecated | Ganti ke `datetime.now(timezone.utc)` | selesai |
+| State + event tidak atomik | Satu transaksi SQLite untuk update device + audit | selesai |
+| Group/service user | `groupadd` eksplisit + `useradd --gid` + verifikasi | selesai |
+| Env override tidak idempoten | Env file selalu ditulis ulang; permission diperbaiki tiap run | selesai |
+| Health check false positive | Cek `systemctl is-active`, validasi JSON, cek listener | selesai |
+| `find` menyentuh `.venv` | Dibatasi ke `iot_device/`, `templates/`, `static/` | selesai |
+| `EnvironmentFile` opsional, tanpa UMask | Wajib + `UMask=0027` | selesai |
+| `pip install` tidak konsisten | `pip install --no-index -r` tiap run (offline) | selesai |
+| Uninstaller EOF/leftover | `read` aman, hapus drop-in + group, verifikasi rollback | selesai |
+| Smoke/attack script | Retry, JSON parsing, exit code, hydra user list, umask 0600, scope guard | selesai |
 
 ## 3. Catatan penting
 
@@ -83,10 +88,10 @@ Tidak ada duplikasi/error.
 ## 4. Langkah berikutnya
 
 1. Salin repo ke Pi (`~/iiot-monitoring`), jalankan
-   `sudo ./deploy/install-iot-device.sh`.
+   `sudo bash deploy/install-iot-device.sh`.
 2. Verifikasi `/health`, login, kontrol device dari laptop attacker.
-3. Jalankan `scripts/smoke-iot.sh` (T1–T11) dan `scripts/attack-iot.sh`;
-   simpan bukti di `logs/phase-iot-2026-11-06/attack/`.
+3. Jalankan `scripts/smoke-iot.sh` (T1–T13) dan `scripts/attack-iot.sh`;
+   simpan bukti di `logs/phase-iot-2026-11-06/`.
 4. Isi laporan Bagian A final dengan tangkapan layar + output perintah.
 5. Lanjut fase Mitigasi (perbaiki V1–V8) dan Prevention (hardening systemd,
    nftables).

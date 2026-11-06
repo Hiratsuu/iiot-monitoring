@@ -1,10 +1,14 @@
 """HTTP routes for the IIoT Smart Controller baseline."""
 
+import os
 import platform
+import signal
 import socket
 import subprocess
+import threading
 import time
 from datetime import datetime, timezone
+from urllib.parse import urlsplit
 
 from flask import (
     Blueprint,
@@ -18,7 +22,13 @@ from flask import (
 )
 
 from . import devices
-from .auth import login_required, login_user, logout_user, verify_login
+from .auth import (
+    admin_required,
+    login_required,
+    login_user,
+    logout_user,
+    verify_login,
+)
 from .db import get_db, get_setting, record_event
 
 bp = Blueprint("routes", __name__)
@@ -45,8 +55,20 @@ def _boot_iso() -> str:
         return datetime.fromtimestamp(int(boot), tz=timezone.utc).strftime(
             "%Y-%m-%dT%H:%M:%SZ"
         )
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError, OSError):
         return "1970-01-01T00:00:00Z"
+
+
+def _safe_next(target: str | None) -> str | None:
+    """Only allow local absolute paths; block scheme-relative open redirects."""
+    if not target or "\\" in target or not target.startswith("/"):
+        return None
+    if target.startswith("//"):
+        return None
+    parsed = urlsplit(target)
+    if parsed.scheme or parsed.netloc:
+        return None
+    return target
 
 
 # ---------------------------------------------------------------------------
@@ -71,6 +93,8 @@ def login():
     if "user" in session:
         return redirect(url_for("routes.dashboard"))
 
+    next_url = _safe_next(request.values.get("next"))
+
     if request.method == "POST":
         username = request.form.get("username", "")
         password = request.form.get("password", "")
@@ -86,7 +110,10 @@ def login():
             )
             return (
                 render_template(
-                    "login.html", error="Username atau password salah", username=username
+                    "login.html",
+                    error="Username atau password salah",
+                    username=username,
+                    next_url=next_url,
                 ),
                 401,
             )
@@ -98,10 +125,11 @@ def login():
             detail="login",
         )
         login_user(row)
-        nxt = request.args.get("next", "")
-        return redirect(nxt if nxt.startswith("/") else url_for("routes.dashboard"))
+        return redirect(next_url or url_for("routes.dashboard"))
 
-    return render_template("login.html", error=None, username="")
+    return render_template(
+        "login.html", error=None, username="", next_url=next_url
+    )
 
 
 @bp.get("/logout")
@@ -144,7 +172,7 @@ def diagnostics():
 
 
 @bp.get("/events")
-@login_required
+@admin_required
 def events():
     rows = get_db().execute(
         "SELECT ts, username, device, action, source_ip, detail"
@@ -154,7 +182,7 @@ def events():
 
 
 @bp.get("/about")
-@login_required
+@admin_required
 def about():
     return render_template("about.html", info=_about_payload())
 
@@ -184,11 +212,25 @@ def api_status():
 @bp.post("/api/control")
 @login_required
 def api_control():
-    payload = request.get_json(silent=True) or request.form
-    name = payload.get("device", "")
-    action = payload.get("action", "")
+    payload = request.get_json(silent=True)
+    if payload is None:
+        payload = request.form.to_dict()
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "error": "invalid payload"}), 400
+
+    name = payload.get("device")
+    action = payload.get("action")
+    if not isinstance(name, str) or not name:
+        return jsonify({"ok": False, "error": "device required"}), 400
+    if not isinstance(action, str) or not action:
+        return jsonify({"ok": False, "error": "action required"}), 400
+
     value = payload.get("value")
-    if value is not None:
+    if value is None or value == "":
+        value = None
+    else:
+        if isinstance(value, bool):
+            return jsonify({"ok": False, "error": "value must be numeric"}), 400
         try:
             value = float(value)
         except (TypeError, ValueError):
@@ -219,7 +261,7 @@ def api_diagnostics():
 
 
 @bp.get("/api/events")
-@login_required
+@admin_required
 def api_events():
     try:
         limit = int(request.args.get("limit", "50"))
@@ -235,7 +277,7 @@ def api_events():
 
 
 @bp.get("/api/about")
-@login_required
+@admin_required
 def api_about():
     return jsonify(_about_payload())
 
@@ -245,12 +287,28 @@ def api_about():
 # ---------------------------------------------------------------------------
 
 
+def _terminate_process(proc: subprocess.Popen) -> None:
+    try:
+        if os.name == "posix":
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        else:
+            proc.kill()
+    except (ProcessLookupError, OSError):
+        try:
+            proc.kill()
+        except OSError:
+            pass
+
+
 def _run_diagnostics(host: str, *, user: str | None = None) -> tuple[str, int]:
     """Run ping for the supplied host.
 
     V1: the host is interpolated into a shell command without validation or
-    quoting.  ``shell=True`` makes ``; id`` and friends execute arbitrary
+    quoting. ``shell=True`` makes ``; id`` and friends execute arbitrary
     commands as the service user.
+
+    Output is read incrementally and capped at OUTPUT_LIMIT bytes so a noisy
+    or malicious command cannot exhaust service memory.
     """
     cmd = f"ping -c 2 -W 2 {host}"  # noqa: S608 - intentionally vulnerable (V1)
 
@@ -261,27 +319,65 @@ def _run_diagnostics(host: str, *, user: str | None = None) -> tuple[str, int]:
         detail=cmd[:500],
     )
 
+    kwargs = {}
+    if os.name == "posix":
+        kwargs["start_new_session"] = True
+
     try:
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             cmd,
             shell=True,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
-            timeout=PING_TIMEOUT_SECONDS,
+            errors="replace",
+            **kwargs,
         )
-        output = (proc.stdout or "") + (proc.stderr or "")
-        status = 200
-    except subprocess.TimeoutExpired as exc:
-        stdout = exc.stdout or ""
-        stderr = exc.stderr or ""
-        if isinstance(stdout, bytes):
-            stdout = stdout.decode("utf-8", "replace")
-        if isinstance(stderr, bytes):
-            stderr = stderr.decode("utf-8", "replace")
-        output = stdout + stderr + "\n[timeout] command exceeded 10 seconds\n"
-        status = 200
+    except OSError as exc:
+        return f"[error] failed to start command: {exc}\n", 200
 
-    return output[:OUTPUT_LIMIT], status
+    state = {"chunks": [], "size": 0, "truncated": False}
+
+    def _reader() -> None:
+        try:
+            while True:
+                chunk = proc.stdout.read(512)
+                if not chunk:
+                    break
+                remaining = OUTPUT_LIMIT - state["size"]
+                if remaining > 0:
+                    state["chunks"].append(chunk[:remaining])
+                    state["size"] += min(len(chunk), remaining)
+                if state["size"] >= OUTPUT_LIMIT:
+                    state["truncated"] = True
+                    _terminate_process(proc)
+                    break
+        except (ValueError, OSError):
+            pass
+
+    reader = threading.Thread(target=_reader, daemon=True)
+    reader.start()
+
+    timed_out = False
+    try:
+        proc.wait(timeout=PING_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        _terminate_process(proc)
+        try:
+            proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            pass
+    reader.join(timeout=2)
+
+    output = "".join(state["chunks"])
+    result = output[:OUTPUT_LIMIT]
+    if timed_out:
+        result += "\n[timeout] command exceeded 10 seconds\n"
+    if state["truncated"]:
+        result += f"\n[output truncated at {OUTPUT_LIMIT} bytes]\n"
+
+    return result, 200
 
 
 def _about_payload() -> dict:

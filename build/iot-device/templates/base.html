@@ -16,8 +16,10 @@
     <nav>
       <a href="{{ url_for('routes.dashboard') }}">Dashboard</a>
       <a href="{{ url_for('routes.diagnostics') }}">Diagnostik</a>
+      {% if session.get('role') == 'admin' %}
       <a href="{{ url_for('routes.events') }}">Riwayat</a>
       <a href="{{ url_for('routes.about') }}">Tentang</a>
+      {% endif %}
       <span class="user">{{ session.get('user') }} ({{ session.get('role') }})</span>
       <a class="logout" href="{{ url_for('routes.logout') }}">Keluar</a>
     </nav>

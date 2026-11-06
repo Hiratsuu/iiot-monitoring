@@ -11,8 +11,9 @@ import os
 import random
 import threading
 import time
+from datetime import datetime, timezone
 
-from .db import get_db, utc_now
+from .db import get_db, record_event, utc_now
 
 log = logging.getLogger(__name__)
 
@@ -21,6 +22,9 @@ BUZZER_AUTO_OFF_SECONDS = 5
 SENSOR_REFRESH_SECONDS = 10
 
 _gpio = None
+_timers: dict[str, threading.Timer] = {}
+_generations: dict[str, int] = {}
+_timer_lock = threading.Lock()
 
 
 def _gpio_adapter():
@@ -90,12 +94,14 @@ def get_device(name: str) -> dict | None:
     return dict(row) if row else None
 
 
-def _store(name: str, state: str, value: float) -> None:
-    get_db().execute(
+def _store(name: str, state: str, value: float, *, commit: bool = True) -> None:
+    db = get_db()
+    db.execute(
         "UPDATE devices SET state = ?, value = ?, updated_at = ? WHERE name = ?",
         (state, float(value), utc_now(), name),
     )
-    get_db().commit()
+    if commit:
+        db.commit()
 
 
 def refresh_sensor() -> dict | None:
@@ -112,11 +118,12 @@ def refresh_sensor() -> dict | None:
     stale = True
     if updated:
         try:
-            from datetime import datetime
-
-            then = datetime.strptime(updated, "%Y-%m-%dT%H:%M:%SZ")
-            now = datetime.utcnow()
-            stale = (now - then).total_seconds() >= SENSOR_REFRESH_SECONDS
+            then = datetime.strptime(updated, "%Y-%m-%dT%H:%M:%SZ").replace(
+                tzinfo=timezone.utc
+            )
+            stale = (datetime.now(timezone.utc) - then).total_seconds() >= (
+                SENSOR_REFRESH_SECONDS
+            )
         except ValueError:
             stale = True
 
@@ -128,10 +135,51 @@ def refresh_sensor() -> dict | None:
     return device
 
 
-def _buzzer_auto_off(app, name: str) -> None:
+def _cancel_buzzer_timer(name: str) -> None:
+    with _timer_lock:
+        timer = _timers.pop(name, None)
+        _generations[name] = _generations.get(name, 0) + 1
+        if timer is not None:
+            timer.cancel()
+
+
+def _schedule_buzzer_off(app, name: str) -> None:
+    with _timer_lock:
+        old = _timers.pop(name, None)
+        if old is not None:
+            old.cancel()
+        generation = _generations.get(name, 0) + 1
+        _generations[name] = generation
+        timer = threading.Timer(
+            BUZZER_AUTO_OFF_SECONDS,
+            _buzzer_auto_off,
+            args=(app, name, generation),
+        )
+        timer.daemon = True
+        _timers[name] = timer
+        timer.start()
+
+
+def _buzzer_auto_off(app, name: str, generation: int) -> None:
     with app.app_context():
         try:
-            _store(name, "off", 0)
+            with _timer_lock:
+                if _generations.get(name) != generation:
+                    return
+                _timers.pop(name, None)
+
+            device = get_device(name)
+            if device is None or device["state"] != "on":
+                return
+
+            _store(name, "off", 0, commit=False)
+            record_event(
+                "control",
+                device=name,
+                detail="auto-off",
+                commit=False,
+            )
+            get_db().commit()
             _apply_gpio(name, "off")
             log.info("buzzer %s auto-off after %ss", name, BUZZER_AUTO_OFF_SECONDS)
         except Exception as exc:  # pragma: no cover - defensive
@@ -148,7 +196,8 @@ def control_device(
 ) -> dict:
     """Apply an action and return the updated device.
 
-    Raises ValueError with a message the route maps to 400/404.
+    State change and audit event are committed in one transaction.  Raises
+    KeyError for unknown devices and ValueError for invalid actions.
     """
     device = get_device(name)
     if device is None:
@@ -174,28 +223,27 @@ def control_device(
     else:
         raise ValueError("unknown action")
 
-    _store(name, state, new_value)
-    _apply_gpio(name, state)
-
-    from .db import record_event
-
     detail = f"{action}" + (f" value={new_value:g}" if action == "set" else "")
+    _store(name, state, new_value, commit=False)
     record_event(
         "control",
         username=username,
         device=name,
         source_ip=source_ip,
         detail=detail,
+        commit=False,
     )
+    get_db().commit()
 
-    if name.startswith("buzzer") and state == "on":
-        from flask import current_app
+    _apply_gpio(name, state)
 
-        app = current_app._get_current_object()
-        timer = threading.Timer(
-            BUZZER_AUTO_OFF_SECONDS, _buzzer_auto_off, args=(app, name)
-        )
-        timer.daemon = True
-        timer.start()
+    if name.startswith("buzzer"):
+        if state == "on":
+            from flask import current_app
+
+            app = current_app._get_current_object()
+            _schedule_buzzer_off(app, name)
+        else:
+            _cancel_buzzer_timer(name)
 
     return get_device(name)
