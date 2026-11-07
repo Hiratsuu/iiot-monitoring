@@ -1,0 +1,90 @@
+# P9 pytest transcript
+# generated: 2026-11-07T13:38:24+07:00
+# host: Linux 7.2.7-200.fc44.x86_64 x86_64
+# python: Python 3.14.8
+# flask: 3.1.3
+# pytest: pytest 9.2.0
+# cwd: ~/iiot-monitoring/team-app
+
+============================= test session starts ==============================
+platform linux -- Python 3.14.8, pytest-9.2.0, pluggy-1.7.0 -- ~/iiot-monitoring/.venv-p9/bin/python
+cachedir: .pytest_cache
+rootdir: ~/iiot-monitoring/team-app
+configfile: pytest.ini
+testpaths: build/iot-device/tests
+collecting ... collected 72 items
+
+build/iot-device/tests/test_app.py::test_health_is_public_json PASSED    [  1%]
+build/iot-device/tests/test_app.py::test_api_without_session_is_401[get-/api/status] PASSED [  2%]
+build/iot-device/tests/test_app.py::test_api_without_session_is_401[get-/api/events] PASSED [  4%]
+build/iot-device/tests/test_app.py::test_api_without_session_is_401[get-/api/about] PASSED [  5%]
+build/iot-device/tests/test_app.py::test_api_without_session_is_401[get-/api/diagnostics] PASSED [  6%]
+build/iot-device/tests/test_app.py::test_api_without_session_is_401[post-/api/control] PASSED [  8%]
+build/iot-device/tests/test_app.py::test_pages_without_session_redirect_to_login[/] PASSED [  9%]
+build/iot-device/tests/test_app.py::test_pages_without_session_redirect_to_login[/events] PASSED [ 11%]
+build/iot-device/tests/test_app.py::test_pages_without_session_redirect_to_login[/about] PASSED [ 12%]
+build/iot-device/tests/test_app.py::test_pages_without_session_redirect_to_login[/diagnostics] PASSED [ 13%]
+build/iot-device/tests/test_app.py::test_login_rejects_bad_password PASSED [ 15%]
+build/iot-device/tests/test_app.py::test_login_default_admin_credentials_v2 PASSED [ 16%]
+build/iot-device/tests/test_app.py::test_login_default_operator_credentials_v2 PASSED [ 18%]
+build/iot-device/tests/test_app.py::test_session_cookie_is_weak_v4 PASSED [ 19%]
+build/iot-device/tests/test_app.py::test_logout_clears_session PASSED    [ 20%]
+build/iot-device/tests/test_app.py::test_no_rate_limit_or_lockout_v3 PASSED [ 22%]
+build/iot-device/tests/test_app.py::test_admin_can_read_audit_pages PASSED [ 23%]
+build/iot-device/tests/test_app.py::test_operator_forbidden_from_admin_pages[/events-False] PASSED [ 25%]
+build/iot-device/tests/test_app.py::test_operator_forbidden_from_admin_pages[/about-False] PASSED [ 26%]
+build/iot-device/tests/test_app.py::test_operator_forbidden_from_admin_pages[/api/events-True] PASSED [ 27%]
+build/iot-device/tests/test_app.py::test_operator_forbidden_from_admin_pages[/api/about-True] PASSED [ 29%]
+build/iot-device/tests/test_app.py::test_operator_dashboard_hides_audit_trail PASSED [ 30%]
+build/iot-device/tests/test_app.py::test_operator_dashboard_does_not_query_events PASSED [ 31%]
+build/iot-device/tests/test_app.py::test_operator_can_control_and_run_diagnostics PASSED [ 33%]
+build/iot-device/tests/test_app.py::test_control_without_csrf_token_v5 PASSED [ 34%]
+build/iot-device/tests/test_app.py::test_status_lists_actuators_and_sensor PASSED [ 36%]
+build/iot-device/tests/test_app.py::test_led_on_set_and_off PASSED       [ 37%]
+build/iot-device/tests/test_app.py::test_relay_on PASSED                 [ 38%]
+build/iot-device/tests/test_app.py::test_buzzer_on_auto_off PASSED       [ 40%]
+build/iot-device/tests/test_app.py::test_unknown_device_and_action PASSED [ 41%]
+build/iot-device/tests/test_app.py::test_control_rejects_json_list PASSED [ 43%]
+build/iot-device/tests/test_app.py::test_control_requires_device PASSED  [ 44%]
+build/iot-device/tests/test_app.py::test_control_rejects_boolean_value PASSED [ 45%]
+build/iot-device/tests/test_app.py::test_api_wrong_method_returns_json_405 PASSED [ 47%]
+build/iot-device/tests/test_app.py::test_control_rejects_oversized_payload PASSED [ 48%]
+build/iot-device/tests/test_app.py::test_oversized_login_body_is_413 PASSED [ 50%]
+build/iot-device/tests/test_app.py::test_oversized_body_rejected_before_view_when_logged_in PASSED [ 51%]
+build/iot-device/tests/test_app.py::test_safe_next_allows_local_path PASSED [ 52%]
+build/iot-device/tests/test_app.py::test_safe_next_rejects_hostile_targets[//evil.example] PASSED [ 54%]
+build/iot-device/tests/test_app.py::test_safe_next_rejects_hostile_targets[https://evil.example] PASSED [ 55%]
+build/iot-device/tests/test_app.py::test_safe_next_rejects_hostile_targets[/\\evil.example] PASSED [ 56%]
+build/iot-device/tests/test_app.py::test_safe_next_rejects_control_char_bypass[/%09///evil.example] PASSED [ 58%]
+build/iot-device/tests/test_app.py::test_safe_next_rejects_control_char_bypass[/%09////evil.example] PASSED [ 59%]
+build/iot-device/tests/test_app.py::test_safe_next_rejects_control_char_bypass[/%0a///evil.example] PASSED [ 61%]
+build/iot-device/tests/test_app.py::test_safe_next_rejects_control_char_bypass[/%0d///evil.example] PASSED [ 62%]
+build/iot-device/tests/test_app.py::test_safe_next_rejects_control_char_bypass[/%09//evil.example] PASSED [ 63%]
+build/iot-device/tests/test_app.py::test_diagnostics_is_text_plain PASSED [ 65%]
+build/iot-device/tests/test_app.py::test_diagnostics_command_injection_v1 PASSED [ 66%]
+build/iot-device/tests/test_app.py::test_diagnostics_output_is_capped PASSED [ 68%]
+build/iot-device/tests/test_app.py::test_diagnostics_timeout_is_bounded PASSED [ 69%]
+build/iot-device/tests/test_app.py::test_diagnostics_timeout_kills_child_process PASSED [ 70%]
+build/iot-device/tests/test_app.py::test_pages_render PASSED             [ 72%]
+build/iot-device/tests/test_app.py::test_about_discloses_runtime_v8 PASSED [ 73%]
+build/iot-device/tests/test_app.py::test_seed_populates_baseline PASSED  [ 75%]
+build/iot-device/tests/test_app.py::test_database_uses_wal PASSED        [ 76%]
+build/iot-device/tests/test_app.py::test_seed_is_one_shot PASSED         [ 77%]
+build/iot-device/tests/test_app.py::test_seed_marker_short_circuits_second_run PASSED [ 79%]
+build/iot-device/tests/test_app.py::test_seed_force_keeps_existing_rows PASSED [ 80%]
+build/iot-device/tests/test_app.py::test_seed_twice_keeps_counts PASSED  [ 81%]
+build/iot-device/tests/test_app.py::test_buzzer_startup_reconcile PASSED [ 83%]
+build/iot-device/tests/test_app.py::test_login_failure_is_audited PASSED [ 84%]
+build/iot-device/tests/test_app.py::test_control_is_audited PASSED       [ 86%]
+build/iot-device/tests/test_app.py::test_diagnostics_is_audited PASSED   [ 87%]
+build/iot-device/tests/test_app.py::test_buzzer_stale_timer_cannot_override_new_on PASSED [ 88%]
+build/iot-device/tests/test_app.py::test_buzzer_stale_generation_is_ignored PASSED [ 90%]
+build/iot-device/tests/test_app.py::test_buzzer_schedule_registers_token_and_cancels_old_timer PASSED [ 91%]
+build/iot-device/tests/test_app.py::test_buzzer_schedule_registers_token_without_control_path PASSED [ 93%]
+build/iot-device/tests/test_app.py::test_buzzer_on_registers_token_before_commit PASSED [ 94%]
+build/iot-device/tests/test_app.py::test_buzzer_off_cancels_timer PASSED [ 95%]
+build/iot-device/tests/test_app.py::test_prune_events_keeps_newest PASSED [ 97%]
+build/iot-device/tests/test_app.py::test_event_cap_is_enforced_by_sampling PASSED [ 98%]
+build/iot-device/tests/test_app.py::test_prune_protects_pending_buzzer_token PASSED [100%]
+
+============================== 72 passed in 8.01s ==============================

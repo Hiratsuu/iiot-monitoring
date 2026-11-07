@@ -1,0 +1,4 @@
+# Development/test dependencies (not installed on the Pi).
+# The runtime pin stays in requirements.txt.
+-r requirements.txt
+pytest==9.2.0
