@@ -42,6 +42,14 @@ class Config:
     FIRMWARE = os.environ.get("FIRMWARE", "1.0.0")
     DEVICE_NAME = os.environ.get("DEVICE_NAME", "IIoT-SmartController-01")
 
+    # Diagnostics subprocess lifecycle (C-10).  Kept in config so the request
+    # timeout and output cap can be tightened in deployment and overridden by
+    # the test suite instead of being hard-coded in routes.py.  These are
+    # parsed at import, so an invalid env value fails fast like PORT; the
+    # create_app() override path is validated in routes._diag_limits().
+    PING_TIMEOUT_SECONDS = int(os.environ.get("PING_TIMEOUT_SECONDS", "10"))
+    OUTPUT_LIMIT = int(os.environ.get("OUTPUT_LIMIT", "4096"))
+
     # V4: session cookie without HttpOnly / Secure / SameSite, long lifetime.
     SESSION_COOKIE_HTTPONLY = False
     SESSION_COOKIE_SECURE = False

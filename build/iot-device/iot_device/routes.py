@@ -2,6 +2,7 @@
 
 import os
 import platform
+import select
 import signal
 import socket
 import subprocess
@@ -32,9 +33,6 @@ from .auth import (
 from .db import get_db, get_setting, record_event
 
 bp = Blueprint("routes", __name__)
-
-PING_TIMEOUT_SECONDS = 10
-OUTPUT_LIMIT = 4096
 
 
 def _source_ip() -> str:
@@ -287,17 +285,63 @@ def api_about():
 # ---------------------------------------------------------------------------
 
 
-def _terminate_process(proc: subprocess.Popen) -> None:
-    try:
-        if os.name == "posix":
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-        else:
-            proc.kill()
-    except (ProcessLookupError, OSError):
+def _terminate_process(proc: subprocess.Popen, pgid: int | None = None) -> None:
+    """Kill the command's whole process group if it is still running.
+
+    ``start_new_session=True`` makes the shell a session and group leader, so
+    signalling the group also kills children that inherited the output pipe.
+    ``pgid`` is captured right after ``Popen``: a background child can still be
+    killed after the shell itself has been reaped, because the group id stays
+    valid while the group has members.  If the group is already empty,
+    ``killpg`` raises ``ProcessLookupError`` and the helper falls back to
+    ``proc.kill()`` only while ``proc`` is alive (signalling a reaped PID could
+    hit a recycled process).
+
+    A child that detached into a new session (``setsid``) is outside this
+    group; it can outlive the request, but the reader/pipe teardown still
+    bounds the request, thread and FD.
+    """
+    if os.name == "posix" and pgid is not None:
         try:
-            proc.kill()
+            os.killpg(pgid, signal.SIGKILL)
+            return
+        except ProcessLookupError:
+            pass
         except OSError:
             pass
+    if proc.poll() is not None:
+        return
+    try:
+        proc.kill()
+    except OSError:
+        pass
+
+
+def _diag_limits() -> tuple[int, int]:
+    """Return the configured (timeout seconds, output byte cap) for C-10.
+
+    Invalid overrides fall back to the baseline values instead of turning a
+    diagnostics request into a 500; the warning makes the misconfiguration
+    visible in the service log.
+    """
+    config = current_app.config
+    try:
+        timeout_seconds = int(config.get("PING_TIMEOUT_SECONDS", 10))
+    except (TypeError, ValueError, OverflowError):
+        current_app.logger.warning(
+            "invalid PING_TIMEOUT_SECONDS=%r; using 10",
+            config.get("PING_TIMEOUT_SECONDS"),
+        )
+        timeout_seconds = 10
+    try:
+        output_limit = int(config.get("OUTPUT_LIMIT", 4096))
+    except (TypeError, ValueError, OverflowError):
+        current_app.logger.warning(
+            "invalid OUTPUT_LIMIT=%r; using 4096",
+            config.get("OUTPUT_LIMIT"),
+        )
+        output_limit = 4096
+    return max(1, timeout_seconds), max(0, output_limit)
 
 
 def _run_diagnostics(host: str, *, user: str | None = None) -> tuple[str, int]:
@@ -307,9 +351,15 @@ def _run_diagnostics(host: str, *, user: str | None = None) -> tuple[str, int]:
     quoting. ``shell=True`` makes ``; id`` and friends execute arbitrary
     commands as the service user.
 
-    Output is read incrementally and capped at OUTPUT_LIMIT bytes so a noisy
-    or malicious command cannot exhaust service memory.
+    Command output is read incrementally and capped at ``OUTPUT_LIMIT`` bytes
+    (including the short timeout/truncation markers) so a noisy or malicious
+    command cannot exhaust service memory.  The reader, the child process
+    group and the pipe are always torn down before the response is built
+    (C-10): a command that detaches itself with ``setsid`` can keep the write
+    end of the pipe open, so the reader must be stoppable instead of only
+    being joined.
     """
+    timeout_seconds, output_limit = _diag_limits()
     cmd = f"ping -c 2 -W 2 {host}"  # noqa: S608 - intentionally vulnerable (V1)
 
     record_event(
@@ -329,53 +379,161 @@ def _run_diagnostics(host: str, *, user: str | None = None) -> tuple[str, int]:
             shell=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True,
-            errors="replace",
             **kwargs,
         )
     except OSError as exc:
         return f"[error] failed to start command: {exc}\n", 200
 
+    # Capture the group id before the shell can be reaped.  A background child
+    # stays in this group, so killpg() can still reach it afterwards.
+    pgid = None
+    if os.name == "posix":
+        try:
+            pgid = os.getpgid(proc.pid)
+        except OSError:
+            pgid = proc.pid
+
     state = {"chunks": [], "size": 0, "truncated": False}
+    state_lock = threading.Lock()
+    stop = threading.Event()
 
     def _reader() -> None:
-        try:
-            while True:
-                chunk = proc.stdout.read(512)
-                if not chunk:
-                    break
-                remaining = OUTPUT_LIMIT - state["size"]
+        # Read raw bytes with a short poll() timeout so the thread can see
+        # ``stop`` even while a detached child keeps the pipe open.  poll()
+        # (unlike select()) also handles descriptors above FD_SETSIZE.  If
+        # poll() is unavailable or fails, fall back to a non-blocking read so
+        # the reader can still observe ``stop`` instead of blocking forever.
+        fd = proc.stdout.fileno()
+        poller = None
+        nonblocking = False
+        if os.name == "posix" and hasattr(select, "poll"):
+            try:
+                poller = select.poll()
+                poller.register(fd, select.POLLIN)
+            except (OSError, ValueError):
+                poller = None
+        if poller is None and os.name == "posix":
+            try:
+                os.set_blocking(fd, False)
+                nonblocking = True
+            except (OSError, ValueError):
+                nonblocking = False
+        while not stop.is_set():
+            if poller is not None:
+                try:
+                    events = poller.poll(200)
+                except (OSError, ValueError):
+                    poller = None
+                    try:
+                        os.set_blocking(fd, False)
+                        nonblocking = True
+                    except (OSError, ValueError):
+                        nonblocking = False
+                    if not nonblocking:
+                        break
+                    continue
+                if not events:
+                    continue
+            elif os.name == "posix" and not nonblocking:
+                # No bounded wait is available; stop instead of blocking.
+                break
+            try:
+                chunk = os.read(fd, 512)
+            except BlockingIOError:
+                time.sleep(0.05)
+                continue
+            except (OSError, ValueError):
+                break
+            if not chunk:
+                break
+            with state_lock:
+                remaining = output_limit - state["size"]
                 if remaining > 0:
                     state["chunks"].append(chunk[:remaining])
                     state["size"] += min(len(chunk), remaining)
-                if state["size"] >= OUTPUT_LIMIT:
+                    cut = len(chunk) > remaining
+                else:
+                    # The cap was already reached; this chunk proves there is
+                    # more output than the cap.
+                    cut = True
+                if cut:
                     state["truncated"] = True
-                    _terminate_process(proc)
-                    break
-        except (ValueError, OSError):
-            pass
+            if cut:
+                _terminate_process(proc, pgid)
+                break
 
     reader = threading.Thread(target=_reader, daemon=True)
-    reader.start()
-
-    timed_out = False
     try:
-        proc.wait(timeout=PING_TIMEOUT_SECONDS)
-    except subprocess.TimeoutExpired:
-        timed_out = True
-        _terminate_process(proc)
+        reader.start()
+    except RuntimeError:
+        # Thread exhaustion must not leak the child or its pipe.
+        _terminate_process(proc, pgid)
         try:
             proc.wait(timeout=2)
         except subprocess.TimeoutExpired:
             pass
-    reader.join(timeout=2)
+        try:
+            proc.stdout.close()
+        except (OSError, ValueError):
+            pass
+        raise
 
-    output = "".join(state["chunks"])
-    result = output[:OUTPUT_LIMIT]
+    timed_out = False
+    try:
+        proc.wait(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        _terminate_process(proc, pgid)
+        try:
+            proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            pass
+    finally:
+        # Let the reader drain a normal exit first; only force it when the
+        # command is gone but something still holds the pipe open.
+        reader.join(timeout=2)
+        if reader.is_alive():
+            stop.set()
+            _terminate_process(proc, pgid)
+            reader.join(timeout=2)
+        if reader.is_alive():
+            # Closing our read end makes poll()/read() fail in the reader;
+            # the escaped child only sees EPIPE from here on.
+            try:
+                proc.stdout.close()
+            except (OSError, ValueError):
+                pass
+            reader.join(timeout=1)
+        try:
+            proc.stdout.close()
+        except (OSError, ValueError):
+            pass
+
+    with state_lock:
+        chunks = list(state["chunks"])
+        truncated = state["truncated"]
+    output_bytes = b"".join(chunks)
+
+    notes = []
     if timed_out:
-        result += "\n[timeout] command exceeded 10 seconds\n"
-    if state["truncated"]:
-        result += f"\n[output truncated at {OUTPUT_LIMIT} bytes]\n"
+        notes.append(f"\n[timeout] command exceeded {timeout_seconds} seconds\n")
+    if truncated:
+        notes.append(f"\n[output truncated at {output_limit} bytes]\n")
+    note_text = "".join(notes)
+    note_bytes = note_text.encode("utf-8")
+    body_budget = max(0, output_limit - len(note_bytes))
+    if len(output_bytes) > body_budget and not truncated:
+        # Making room for the timeout marker cut the output; say so.
+        notes.append(f"\n[output truncated at {output_limit} bytes]\n")
+        note_text = "".join(notes)
+        note_bytes = note_text.encode("utf-8")
+        body_budget = max(0, output_limit - len(note_bytes))
+    body = output_bytes[:body_budget].decode("utf-8", "replace")
+    body_bytes = body.encode("utf-8")
+    if len(body_bytes) > body_budget:
+        # Replacement characters can expand; trim again so the cap holds.
+        body = body_bytes[:body_budget].decode("utf-8", "ignore")
+    result = body + note_text
 
     return result, 200
 
