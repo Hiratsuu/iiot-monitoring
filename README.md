@@ -114,13 +114,30 @@ ssh kali@192.168.100.90 \
 Tanpa `rsync`, gunakan `scp -p -r` lalu `chmod +x` di Pi. Jangan mengirim
 `build/iot-device/.venv` (artefak Windows, ~27 MB) atau folder `data/`.
 
-Installer: membuat group + user `iotdev` secara eksplisit, direktori, venv,
-menulis ulang env file, seed DB, unit systemd, lalu `enable` + `restart`.
-Health check memvalidasi JSON `/health` dan status systemd. Aman dijalankan
-ulang; override env diterapkan pada setiap run.
+Installer: preflight memeriksa `BIND_ADDR` ada di interface, port belum
+dipakai proses lain, dan tidak ada symlink pada path kunci (`APP_DIR`,
+`DATA_DIR`, `CONF_DIR`, unit, env, `iot.db`/`-wal`/`-shm`, `.venv`). Lalu
+service distop (gagal stop = abort), group/user dibuat sebelum chown, DB
+dibackup WAL-aware + integrity check ke `/var/backups/iot-device/`, file
+di-stage dan dipindah, venv/Flask diverifikasi, env ditulis hanya jika belum
+ada atau dioverride (env lama dibackup), seed hanya untuk DB baru, unit
+dipasang, dan health check memvalidasi JSON `/health`. Jika gagal, trap
+menghentikan/menonaktifkan unit dan menyebut lokasi backup.
+
+Aman dijalankan ulang: env kustom **tidak** tertimpa dan DB yang sudah ada
+tidak di-seed ulang. Override eksplisit menulis ulang env; `FORCE_ENV=1`
+memaksa tulis ulang tetapi tetap memakai nilai yang sudah ada untuk key yang
+tidak dioverride (bukan reset ke default). Key yang hilang/kosong di env lama
+ditulis ulang dengan default. Nilai env ditulis apa adanya: hindari spasi di
+awal/akhir atau tanda kutip pada `SECRET_KEY`/`FIRMWARE`. Backup installer
+tidak dirotasi otomatis; bersihkan `/var/backups/iot-device/` secara berkala.
 
 Override opsional:
 `BIND_ADDR=... PORT=... GPIO_ENABLED=1 sudo -E bash deploy/install-iot-device.sh`.
+
+Cek read-only tanpa root (mis. dari laptop; default `BIND_ADDR` Pi tidak ada
+di laptop):
+`BIND_ADDR=127.0.0.1 PORT=8099 bash deploy/install-iot-device.sh --preflight-only`.
 
 ## Uji
 
@@ -143,10 +160,33 @@ tersimpan di `logs/phase-iot-2026-11-06/recon/`, bukti serangan di
 
 ```bash
 sudo bash deploy/uninstall-iot-device.sh            # simpan database
-sudo bash deploy/uninstall-iot-device.sh --purge    # hapus database juga
+sudo bash deploy/uninstall-iot-device.sh --purge    # backup lalu hapus data
 ```
 
-Uninstaller memverifikasi service berhenti dan user/group benar-benar hilang.
+`--purge` membackup `iot.db` (+ `-wal`/`-shm` bila ada) dan env ke
+`/root/iot-device-backup-<timestamp>.tar.gz` sebelum `rm -rf`; backup gagal =
+purge dibatalkan. Uninstaller menolak berjalan jika service masih aktif atau
+path kunci berupa symlink, membackup env juga pada uninstall biasa (DB
+disimpan), lalu memverifikasi service berhenti, user/group hilang,
+unit/drop-in/direktori terhapus, dan tidak ada listener tersisa di port
+aplikasi (listener tak terduga = ERROR, bukan WARNING). `--purge` menghapus
+data aplikasi tetapi **tidak** menghapus backup installer di
+`/var/backups/iot-device/`; hapus manual jika perlu.
+
+Restore dari backup `--purge` (arsip berisi `iot.db` dan `iot-device.env` di
+root arsip):
+
+```bash
+sudo mkdir -p /tmp/iot-restore
+sudo tar -xzf /root/iot-device-backup-<timestamp>.tar.gz -C /tmp/iot-restore
+sudo install -d -m 0750 /var/lib/iot-device /etc/iot-device
+sudo install -m 0640 -o iotdev -g iotdev /tmp/iot-restore/iot.db /var/lib/iot-device/iot.db
+sudo install -m 0640 -o root -g iotdev /tmp/iot-restore/iot-device.env /etc/iot-device/iot-device.env
+```
+
+Jika arsip juga berisi `iot.db-wal`/`iot.db-shm`, salin keduanya ke
+`/var/lib/iot-device/` dengan owner `iotdev`. Setelah restore, jalankan
+installer lagi untuk membuat user/group/unit.
 
 ## Batas aman
 
