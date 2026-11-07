@@ -41,6 +41,8 @@
   {% endfor %}
 </section>
 
+{# C-12: the audit trail is admin-only; match /events and /api/events. #}
+{% if session.get('role') == 'admin' %}
 <section class="card">
   <div class="card-head">
     <h2>10 Event Terakhir</h2>
@@ -68,4 +70,5 @@
     </table>
   </div>
 </section>
+{% endif %}
 {% endblock %}

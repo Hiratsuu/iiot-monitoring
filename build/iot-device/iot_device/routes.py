@@ -119,8 +119,20 @@ def _boot_iso() -> str:
 
 
 def _safe_next(target: str | None) -> str | None:
-    """Only allow local absolute paths; block scheme-relative open redirects."""
-    if not target or "\\" in target or not target.startswith("/"):
+    """Only allow local absolute paths; block scheme-relative open redirects.
+
+    C-13: reject control characters before any other analysis.  Redirect
+    serialisation (Werkzeug ``iri_to_uri`` -> ``urlsplit``) and some URL
+    parsers strip tab/newline/CR, which can collapse a path into a
+    scheme-relative ``//host``.  The real exploit is ``/%09///evil.example``
+    (tab + three slashes); reject the control character before any path
+    analysis.
+    """
+    if not target:
+        return None
+    if any(ord(c) < 0x20 or c == "\x7f" for c in target):
+        return None
+    if "\\" in target or not target.startswith("/"):
         return None
     if target.startswith("//"):
         return None
@@ -210,10 +222,15 @@ def logout():
 @login_required
 def dashboard():
     sensor = devices.refresh_sensor()
-    rows = get_db().execute(
-        "SELECT ts, username, device, action, source_ip, detail"
-        " FROM events ORDER BY id DESC LIMIT 10"
-    ).fetchall()
+    # C-12: the audit trail is admin-only (/events and /api/events already
+    # enforce that).  Do not query it for an operator, so the dashboard cannot
+    # leak rows the operator is not allowed to see.
+    rows = []
+    if session.get("role") == "admin":
+        rows = get_db().execute(
+            "SELECT ts, username, device, action, source_ip, detail"
+            " FROM events ORDER BY id DESC LIMIT 10"
+        ).fetchall()
     return render_template(
         "dashboard.html",
         devices=devices.list_devices(),
