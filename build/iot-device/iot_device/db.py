@@ -105,15 +105,21 @@ def record_event(
     source_ip: str | None = None,
     detail: str | None = None,
     commit: bool = True,
-) -> None:
+) -> int:
+    """Insert an audit event and return its row id.
+
+    The id is a monotonic token: callers can use it to make a later write
+    conditional on no newer event having been recorded (C-09).
+    """
     db = get_db()
-    db.execute(
+    cur = db.execute(
         "INSERT INTO events (ts, username, device, action, source_ip, detail)"
         " VALUES (?, ?, ?, ?, ?, ?)",
         (utc_now(), username, device, action, source_ip, detail),
     )
     if commit:
         db.commit()
+    return int(cur.lastrowid)
 
 
 def set_setting(key: str, value: str) -> None:

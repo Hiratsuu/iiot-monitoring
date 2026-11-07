@@ -171,8 +171,34 @@ def _cancel_buzzer_timer(name: str) -> None:
             timer.cancel()
 
 
-def _schedule_buzzer_off(app, name: str) -> None:
+def _schedule_buzzer_off(
+    app, name: str, fallback_event_id: int | None = None
+) -> None:
+    """(Re)arm the auto-off timer for ``name``.
+
+    The token is the id of the latest control event for the device.  Every
+    control request inserts a new event, so a stale timer can never match a
+    re-armed buzzer (C-09).  Reading it here, under the timer lock and after
+    the caller committed, also keeps the token current when two control
+    requests race: the later schedule wins the generation and sees the latest
+    committed event.  ``fallback_event_id`` is the id the caller just
+    committed; it is used if the read fails so a committed "on" is never left
+    without a timer.
+    """
     with _timer_lock:
+        try:
+            row = get_db().execute(
+                "SELECT id FROM events WHERE device = ? AND action = 'control'"
+                " ORDER BY id DESC LIMIT 1",
+                (name,),
+            ).fetchone()
+            expected_event_id = row["id"] if row else fallback_event_id
+        except Exception:  # pragma: no cover - defensive
+            log.exception("could not read %s control event; using committed id", name)
+            expected_event_id = fallback_event_id
+        if expected_event_id is None:
+            return
+
         old = _timers.pop(name, None)
         if old is not None:
             old.cancel()
@@ -181,14 +207,16 @@ def _schedule_buzzer_off(app, name: str) -> None:
         timer = threading.Timer(
             BUZZER_AUTO_OFF_SECONDS,
             _buzzer_auto_off,
-            args=(app, name, generation),
+            args=(app, name, generation, expected_event_id),
         )
         timer.daemon = True
         _timers[name] = timer
         timer.start()
 
 
-def _buzzer_auto_off(app, name: str, generation: int) -> None:
+def _buzzer_auto_off(
+    app, name: str, generation: int, expected_event_id: int
+) -> None:
     with app.app_context():
         try:
             with _timer_lock:
@@ -196,18 +224,34 @@ def _buzzer_auto_off(app, name: str, generation: int) -> None:
                     return
                 _timers.pop(name, None)
 
-            device = get_device(name)
-            if device is None or device["state"] != "on":
+            # Conditional write instead of check-then-write: only turn the
+            # buzzer off if the latest control event is still the one this
+            # timer was armed for.  A newer on/off inserts a new event id, so
+            # a stale timer matches zero rows and leaves the fresh state
+            # alone, even within the same wall-clock second (C-09).
+            db = get_db()
+            cur = db.execute(
+                "UPDATE devices SET state = ?, value = ?, updated_at = ?"
+                " WHERE name = ? AND state = 'on'"
+                "   AND (SELECT id FROM events WHERE device = ?"
+                "        AND action = 'control' ORDER BY id DESC LIMIT 1) = ?",
+                ("off", 0.0, utc_now(), name, name, expected_event_id),
+            )
+            if cur.rowcount != 1:
+                db.rollback()
+                log.debug(
+                    "buzzer %s auto-off skipped: state changed since schedule",
+                    name,
+                )
                 return
 
-            _store(name, "off", 0, commit=False)
             record_event(
                 "control",
                 device=name,
                 detail="auto-off",
                 commit=False,
             )
-            get_db().commit()
+            db.commit()
             _apply_gpio(name, "off")
             log.info("buzzer %s auto-off after %ss", name, BUZZER_AUTO_OFF_SECONDS)
         except Exception as exc:  # pragma: no cover - defensive
@@ -253,7 +297,7 @@ def control_device(
 
     detail = f"{action}" + (f" value={new_value:g}" if action == "set" else "")
     _store(name, state, new_value, commit=False)
-    record_event(
+    event_id = record_event(
         "control",
         username=username,
         device=name,
@@ -266,11 +310,14 @@ def control_device(
     _apply_gpio(name, state)
 
     if name.startswith("buzzer"):
+        # Commit first, then touch the timer registry: the token is the event
+        # id committed above, and a scheduling failure must not undo the
+        # state change the user already saw.
         if state == "on":
             from flask import current_app
 
             app = current_app._get_current_object()
-            _schedule_buzzer_off(app, name)
+            _schedule_buzzer_off(app, name, event_id)
         else:
             _cancel_buzzer_timer(name)
 
