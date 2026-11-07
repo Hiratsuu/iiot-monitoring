@@ -13,7 +13,7 @@ import threading
 import time
 from datetime import datetime, timezone
 
-from .db import get_db, record_event, utc_now
+from .db import get_db, maybe_prune_events, record_event, utc_now
 
 log = logging.getLogger(__name__)
 
@@ -24,6 +24,10 @@ SENSOR_REFRESH_SECONDS = 10
 _gpio = None
 _timers: dict[str, threading.Timer] = {}
 _generations: dict[str, int] = {}
+# Event ids that pending timers still use as their conditional-write token.
+# Pruning must not delete these rows (C-16): otherwise the auto-off UPDATE
+# cannot match and the buzzer stays on.
+_timer_tokens: dict[str, int] = {}
 _timer_lock = threading.Lock()
 
 
@@ -160,15 +164,29 @@ def reconcile_on_startup() -> None:
         commit=False,
     )
     get_db().commit()
+    maybe_prune_events()
     log.info("buzzer buzzer-1 reset to off on startup")
 
 
 def _cancel_buzzer_timer(name: str) -> None:
     with _timer_lock:
         timer = _timers.pop(name, None)
+        _timer_tokens.pop(name, None)
         _generations[name] = _generations.get(name, 0) + 1
         if timer is not None:
             timer.cancel()
+
+
+def protected_event_ids() -> set[int]:
+    """Event ids a pending buzzer timer still depends on (C-16).
+
+    The auto-off UPDATE compares the latest control event id with the token
+    captured when the timer was armed.  If retention pruning deleted that
+    row, the comparison would fail and the buzzer would stay on, so the
+    prune query skips these ids.  The set is tiny (one per pending timer).
+    """
+    with _timer_lock:
+        return {token for token in _timer_tokens.values() if token is not None}
 
 
 def _schedule_buzzer_off(
@@ -211,6 +229,7 @@ def _schedule_buzzer_off(
         )
         timer.daemon = True
         _timers[name] = timer
+        _timer_tokens[name] = expected_event_id
         timer.start()
 
 
@@ -224,36 +243,46 @@ def _buzzer_auto_off(
                     return
                 _timers.pop(name, None)
 
-            # Conditional write instead of check-then-write: only turn the
-            # buzzer off if the latest control event is still the one this
-            # timer was armed for.  A newer on/off inserts a new event id, so
-            # a stale timer matches zero rows and leaves the fresh state
-            # alone, even within the same wall-clock second (C-09).
-            db = get_db()
-            cur = db.execute(
-                "UPDATE devices SET state = ?, value = ?, updated_at = ?"
-                " WHERE name = ? AND state = 'on'"
-                "   AND (SELECT id FROM events WHERE device = ?"
-                "        AND action = 'control' ORDER BY id DESC LIMIT 1) = ?",
-                ("off", 0.0, utc_now(), name, name, expected_event_id),
-            )
-            if cur.rowcount != 1:
-                db.rollback()
-                log.debug(
-                    "buzzer %s auto-off skipped: state changed since schedule",
-                    name,
+            try:
+                # Conditional write instead of check-then-write: only turn the
+                # buzzer off if the latest control event is still the one this
+                # timer was armed for.  A newer on/off inserts a new event id,
+                # so a stale timer matches zero rows and leaves the fresh
+                # state alone, even within the same wall-clock second (C-09).
+                db = get_db()
+                cur = db.execute(
+                    "UPDATE devices SET state = ?, value = ?, updated_at = ?"
+                    " WHERE name = ? AND state = 'on'"
+                    "   AND (SELECT id FROM events WHERE device = ?"
+                    "        AND action = 'control' ORDER BY id DESC LIMIT 1) = ?",
+                    ("off", 0.0, utc_now(), name, name, expected_event_id),
                 )
-                return
+                if cur.rowcount != 1:
+                    db.rollback()
+                    log.debug(
+                        "buzzer %s auto-off skipped: state changed since schedule",
+                        name,
+                    )
+                    return
 
-            record_event(
-                "control",
-                device=name,
-                detail="auto-off",
-                commit=False,
-            )
-            db.commit()
-            _apply_gpio(name, "off")
-            log.info("buzzer %s auto-off after %ss", name, BUZZER_AUTO_OFF_SECONDS)
+                record_event(
+                    "control",
+                    device=name,
+                    detail="auto-off",
+                    commit=False,
+                )
+                db.commit()
+                maybe_prune_events(db)
+                _apply_gpio(name, "off")
+                log.info(
+                    "buzzer %s auto-off after %ss", name, BUZZER_AUTO_OFF_SECONDS
+                )
+            finally:
+                # Only drop the token if a newer schedule has not replaced it;
+                # a newer timer owns its own token now.
+                with _timer_lock:
+                    if _timer_tokens.get(name) == expected_event_id:
+                        _timer_tokens.pop(name, None)
         except Exception as exc:  # pragma: no cover - defensive
             log.warning("buzzer auto-off failed: %s", exc)
 
@@ -305,7 +334,22 @@ def control_device(
         detail=detail,
         commit=False,
     )
-    get_db().commit()
+    # Protect the token before the commit.  _schedule_buzzer_off() registers
+    # it only after _apply_gpio(), so a concurrent prune could otherwise
+    # delete the just-inserted event in that window and the auto-off UPDATE
+    # would never match (C-09/C-16).
+    protect_token = name.startswith("buzzer") and state == "on"
+    if protect_token:
+        with _timer_lock:
+            _timer_tokens[name] = event_id
+    try:
+        get_db().commit()
+    except Exception:
+        if protect_token:
+            with _timer_lock:
+                if _timer_tokens.get(name) == event_id:
+                    _timer_tokens.pop(name, None)
+        raise
 
     _apply_gpio(name, state)
 
@@ -321,4 +365,7 @@ def control_device(
         else:
             _cancel_buzzer_timer(name)
 
+    # The control event was inserted with commit=False and committed above;
+    # record_event() could not sample the retention cap by itself.
+    maybe_prune_events()
     return get_device(name)

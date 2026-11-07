@@ -8,6 +8,7 @@ import socket
 import subprocess
 import threading
 import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
@@ -33,6 +34,66 @@ from .auth import (
 from .db import get_db, get_setting, record_event
 
 bp = Blueprint("routes", __name__)
+
+# C-06: the control API only accepts a tiny JSON/form object.  The global
+# MAX_CONTENT_LENGTH still caps every other endpoint at 64 KiB.
+CONTROL_MAX_BODY = 1024
+CONTROL_MAX_DEVICE = 32
+CONTROL_MAX_ACTION = 16
+
+
+_diag_init_lock = threading.Lock()
+
+
+class DiagnosticsBusy(Exception):
+    """Raised when the diagnostics concurrency cap is already reached."""
+
+
+def init_diagnostics_limiter(app) -> None:
+    """Install the per-app diagnostics concurrency limiter (C-06).
+
+    A ``BoundedSemaphore`` is used instead of a counter so a double release
+    fails loudly during development.  The limit is per process; the baseline
+    runs a single Flask dev-server process (V7), so it is the effective cap.
+    """
+    raw = app.config.get("DIAG_CONCURRENCY", 3)
+    try:
+        limit = int(raw)
+    except (TypeError, ValueError, OverflowError):
+        app.logger.warning("invalid DIAG_CONCURRENCY=%r; using 3", raw)
+        limit = 3
+    if limit < 1:
+        app.logger.warning("DIAG_CONCURRENCY=%r < 1; using 1", limit)
+        limit = 1
+    app.extensions.setdefault("iot_device", {})["diag_semaphore"] = (
+        threading.BoundedSemaphore(limit)
+    )
+
+
+def _diag_semaphore() -> threading.BoundedSemaphore:
+    ext = current_app.extensions.setdefault("iot_device", {})
+    sem = ext.get("diag_semaphore")
+    if sem is None:
+        # Defensive fallback for callers that register the blueprint without
+        # create_app(); the factory always installs the configured limiter.
+        with _diag_init_lock:
+            sem = ext.get("diag_semaphore")
+            if sem is None:
+                sem = threading.BoundedSemaphore(3)
+                ext["diag_semaphore"] = sem
+    return sem
+
+
+@contextmanager
+def _diag_slot():
+    """Hold one diagnostics slot, or raise DiagnosticsBusy immediately."""
+    sem = _diag_semaphore()
+    if not sem.acquire(blocking=False):
+        raise DiagnosticsBusy
+    try:
+        yield
+    finally:
+        sem.release()
 
 
 def _source_ip() -> str:
@@ -100,9 +161,12 @@ def login():
 
         if row is None:
             # V3: no delay, no counter, generic message.
+            # C-06: the failed-login audit row keeps at most 64 characters of
+            # the submitted username; the login check above still uses the
+            # full value.
             record_event(
                 "login_fail",
-                username=username or None,
+                username=username[:64] or None,
                 source_ip=_source_ip(),
                 detail="bad credentials",
             )
@@ -165,7 +229,19 @@ def diagnostics():
     host = request.values.get("host", "")
     output = None
     if host:
-        output, _ = _run_diagnostics(host, user=session.get("user"))
+        try:
+            with _diag_slot():
+                output, _ = _run_diagnostics(host, user=session.get("user"))
+        except DiagnosticsBusy:
+            return (
+                render_template(
+                    "diagnostics.html",
+                    host=host,
+                    output="[busy] terlalu banyak permintaan diagnostics; "
+                    "coba lagi.\n",
+                ),
+                429,
+            )
     return render_template("diagnostics.html", host=host, output=output)
 
 
@@ -210,6 +286,15 @@ def api_status():
 @bp.post("/api/control")
 @login_required
 def api_control():
+    # C-06: control payloads are tiny.  Reject a declared oversized body
+    # before parsing, then lower the per-request cap so a chunked body cannot
+    # bypass the check either.  The global MAX_CONTENT_LENGTH still applies to
+    # every other endpoint.
+    declared = request.content_length
+    if declared is not None and declared > CONTROL_MAX_BODY:
+        return jsonify({"ok": False, "error": "payload too large"}), 413
+    request.max_content_length = CONTROL_MAX_BODY
+
     payload = request.get_json(silent=True)
     if payload is None:
         payload = request.form.to_dict()
@@ -222,6 +307,10 @@ def api_control():
         return jsonify({"ok": False, "error": "device required"}), 400
     if not isinstance(action, str) or not action:
         return jsonify({"ok": False, "error": "action required"}), 400
+    if len(name) > CONTROL_MAX_DEVICE:
+        return jsonify({"ok": False, "error": "device too long"}), 400
+    if len(action) > CONTROL_MAX_ACTION:
+        return jsonify({"ok": False, "error": "action too long"}), 400
 
     value = payload.get("value")
     if value is None or value == "":
@@ -254,7 +343,11 @@ def api_control():
 @login_required
 def api_diagnostics():
     host = request.args.get("host", "127.0.0.1")
-    output, status = _run_diagnostics(host, user=session.get("user"))
+    try:
+        with _diag_slot():
+            output, status = _run_diagnostics(host, user=session.get("user"))
+    except DiagnosticsBusy:
+        return jsonify({"ok": False, "error": "busy"}), 429
     return output, status, {"Content-Type": "text/plain; charset=utf-8"}
 
 

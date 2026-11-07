@@ -50,6 +50,13 @@ class Config:
     PING_TIMEOUT_SECONDS = int(os.environ.get("PING_TIMEOUT_SECONDS", "10"))
     OUTPUT_LIMIT = int(os.environ.get("OUTPUT_LIMIT", "4096"))
 
+    # Denial-of-service caps and audit retention (C-06, C-16).  These are
+    # parsed at import like PORT, so an invalid env value fails fast; the
+    # create_app() override path is validated where the value is consumed.
+    MAX_CONTENT_LENGTH = int(os.environ.get("MAX_CONTENT_LENGTH", str(64 * 1024)))
+    EVENTS_MAX_ROWS = int(os.environ.get("EVENTS_MAX_ROWS", "10000"))
+    DIAG_CONCURRENCY = int(os.environ.get("DIAG_CONCURRENCY", "3"))
+
     # V4: session cookie without HttpOnly / Secure / SameSite, long lifetime.
     SESSION_COOKIE_HTTPONLY = False
     SESSION_COOKIE_SECURE = False
